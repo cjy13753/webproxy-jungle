@@ -150,7 +150,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
   }
   else
   { /* Dynamic content */
-    ptr = index(uri, '?');
+    ptr = strchr(uri, '?');
     if (ptr)
     {
       strcpy(cgiargs, ptr + 1);
