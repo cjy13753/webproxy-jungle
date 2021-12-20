@@ -46,7 +46,7 @@ int main(int argc, char **argv)
 /***************************************************************
  * Helper Functions
  **************************************************************/
-void doit(int fd)
+void doit(int connfd)
 {
   int is_static;
   struct stat sbuf;
@@ -54,14 +54,14 @@ void doit(int fd)
   char filename[MAXLINE], cgiargs[MAXLINE];
   rio_t rio;
   /* Read request line and headers */
-  Rio_readinitb(&rio, fd);
+  Rio_readinitb(&rio, connfd);
   Rio_readlineb(&rio, buf, MAXLINE);
   printf("Request headers:\n");
   printf("%s", buf);
   sscanf(buf, "%s %s %s", method, uri, version);
   if (strcasecmp(method, "GET"))
   {
-    clienterror(fd, method, "501", "Not implemented",
+    clienterror(connfd, method, "501", "Not implemented",
                 "Tiny does not implement this method");
     return;
   }
@@ -71,7 +71,7 @@ void doit(int fd)
   is_static = parse_uri(uri, filename, cgiargs);
   if (stat(filename, &sbuf) < 0)
   {
-    clienterror(fd, filename, "404", "Not found",
+    clienterror(connfd, filename, "404", "Not found",
                 "Tiny couldn’t find this file");
     return;
   }
@@ -80,21 +80,21 @@ void doit(int fd)
   { /* Serve static content */
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode))
     {
-      clienterror(fd, filename, "403", "Forbidden",
+      clienterror(connfd, filename, "403", "Forbidden",
                   "Tiny couldn’t read the file");
       return;
     }
-    serve_static(fd, filename, sbuf.st_size);
+    serve_static(connfd, filename, sbuf.st_size);
   }
   else
   { /* Serve dynamic content */
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode))
     {
-      clienterror(fd, filename, "403", "Forbidden",
+      clienterror(connfd, filename, "403", "Forbidden",
                   "Tiny couldn’t run the CGI program");
       return;
     }
-    serve_dynamic(fd, filename, cgiargs);
+    serve_dynamic(connfd, filename, cgiargs);
   }
 }
 
@@ -164,7 +164,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
   }
 }
 
-void serve_static(int fd, char *filename, int filesize)
+void serve_static(int connfd, char *filename, int filesize)
 {
   int srcfd;
   char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -175,16 +175,19 @@ void serve_static(int fd, char *filename, int filesize)
   sprintf(buf, "%sConnection: close\r\n", buf);
   sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
   sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
-  Rio_writen(fd, buf, strlen(buf));
+  Rio_writen(connfd, buf, strlen(buf));
   printf("Response headers:\n");
   printf("%s", buf);
 
   /* Send response body to client */
   srcfd = Open(filename, O_RDONLY, 0);
-  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+  srcp = (char*)Malloc(filesize);
+  Rio_readn(srcfd, srcp, filesize);
   Close(srcfd);
-  Rio_writen(fd, srcp, filesize);
-  Munmap(srcp, filesize);
+  Rio_writen(connfd, srcp, filesize);
+  // Munmap(srcp, filesize);
+  free(srcp);
 }
 
 /*
